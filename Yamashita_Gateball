@@ -1,0 +1,193 @@
+# 必要なライブラリをインポート
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib import rcParams # グラフの日本語化に必要
+import seaborn as sns; sns.set() # 可視化ライブラリ
+from sklearn.model_selection import train_test_split # 学習用データと評価用データに分割するのに必要
+from sklearn.metrics import classification_report # 評価指標の算出に必要
+from sklearn.metrics import confusion_matrix # 混同行列の描画に必要
+from lightgbm import LGBMClassifier # 勾配ブースティングモデル
+import warnings; warnings.filterwarnings('ignore') # 見にくくなるので警告を非表示
+df = pd.read_csv("C:/Users/Zeon/\Desktop/Signate2020ー/学生限定　楽曲/summary/summary/systemdata.csv",encoding='cp932')
+# データフレームの作成（特徴量＋目的変数）
+df = df.drop(["0_area"], axis=1)
+
+# 特徴量と目的変数に分割
+X = df.drop(["0_target"], axis = 1)
+y = df["0_target"]
+
+# 特徴量と目的変数のそれぞれを学習用とテスト用に分割（学習用80%, 評価用20%）
+X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+# データの確認（学習用データの特徴量）
+X_train
+# データの確認（学習用データの目的変数）
+y_train
+# 目的変数の割合（0がねらいなし, 1-10が各球, 11-13が各ゲート, 14がゴールポール）
+sns.countplot(y) # 青
+# 勾配ブースティングモデル（LGBMClassifier）のパラメータを指定（Optunaによるパラメータチューニングを実施済み）
+lgb = LGBMClassifier(
+    learning_rate = 0.29758077460162985, 
+    max_depth = 7, 
+    min_child_weight = 5, 
+    importance_type = "gain", 
+    random_state=1
+) 
+
+# 勾配ブースティングモデルの学習
+lgb.fit(X_train, y_train)
+
+# 評価用データを用いて予測
+y_pred = lgb.predict(X_test)
+# データの確認（評価用データの予測結果）
+y_pred
+# 評価用データを用いて, 予測結果を評価（accuracyが0.658, macroF1が0.437であることが確認できる）
+print("ー Classification Report ー")
+print(classification_report(y_test, y_pred, digits=3))
+#　混同行列の描画
+sns.heatmap(confusion_matrix(y_test, y_pred), vmin=0, vmax=500, cmap='Blues')
+# 特徴量重要度を算出し, 分かりやすいように各特徴量を日本語化
+df_imp = pd.DataFrame(lgb.feature_importances_, index=X.columns, columns=["importance"]).T
+
+df_imp["各球得点"] = df_imp[["0_status_1", "0_status_2", "0_status_3", "0_status_4", "0_status_5", "0_status_6", "0_status_7", "0_status_8", "0_status_9", "0_status_10"]].mean(axis=1)
+df_imp["各球座標"] = df_imp[["0_x_point_1", "0_x_point_2", "0_x_point_3", "0_x_point_4", "0_x_point_5", "0_x_point_6", "0_x_point_7", "0_x_point_8", "0_x_point_9", "0_x_point_10", \
+                                                     "0_y_point_1", "0_y_point_2", "0_y_point_3", "0_y_point_4", "0_y_point_5", "0_y_point_6", "0_y_point_7", "0_y_point_8", "0_y_point_9", "0_y_point_10"]].mean(axis=1)
+df_imp["打順"] = df_imp["0_player_no"]
+df_imp["被スパーク球"] = df_imp["0_spark"]
+df_imp["ショット種類"] = df_imp["0_shot_code"]
+df_imp["経過時間"] = df_imp["0_game_time_sec"]
+df_imp["1球前打順"] = df_imp["1_player_no"]
+df_imp["1球前被スパーク球"] = df_imp["1_spark"]
+df_imp["1球前ショット種類"] = df_imp["1_shot_code"]
+df_imp["1球前経過時間"] = df_imp["1_game_time_sec"]
+df_imp["1球前ねらい"] = df_imp["1_target"]
+df_imp["1球前エリア"] = df_imp["1_area"]
+df_imp["1球前イベント種類"] = df_imp["1_event_code"]
+df_imp["2球前経過時間"] = df_imp["2_game_time_sec"]
+df_imp["2球前ねらい"] = df_imp["2_target"]
+
+# グラフの日本語化
+rcParams['font.family'] = 'sans-serif'
+rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'Noto Sans CJK JP']
+
+# 44行目からのデータが特徴量重要度の対象だったため, 抽出してグラフ描画
+df_imp.T[44:].sort_values('importance', ascending=True).plot.barh(legend=False, xticks=[0, 20000, 40000, 60000], fontsize=12, figsize=(6, 6))
+# 最善手の予測確率（モデルの信頼性の高さ）
+pred_tf_time = pd.DataFrame({
+    "予測結果": y_pred == y_test,
+    "経過時間（秒）": X_test["0_game_time_sec"],
+    "shot_code": X_test["0_shot_code"]
+})
+
+# データの確認（予測結果と経過時間の関係）
+pred_tf_time
+# 通常打撃とスパーク打撃それぞれの分類精度を算出
+pred_tf_time_s = pred_tf_time[pred_tf_time["shot_code"] == 1].sort_values("経過時間（秒）")
+pred_tf_time_s["cumsum"] = (pred_tf_time_s["予測結果"].cumsum()) - 1
+pred_tf_time_s = pred_tf_time_s.reset_index()
+pred_tf_time_s["分類精度"] = pred_tf_time_s["cumsum"] / pred_tf_time_s.index
+
+pred_tf_time_s3 = pred_tf_time[pred_tf_time["shot_code"] == 3].sort_values("経過時間（秒）")
+pred_tf_time_s3["cumsum"] = (pred_tf_time_s3["予測結果"].cumsum()) - 1
+pred_tf_time_s3 = pred_tf_time_s3.reset_index()
+pred_tf_time_s3["分類精度"] = pred_tf_time_s3["cumsum"] / pred_tf_time_s3.index
+
+# 通常打撃とスパーク打撃それぞれの分類精度を可視化
+rcParams['font.family'] = 'sans-serif'
+rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'Noto Sans CJK JP']
+
+plt.figure(figsize=(5, 5))
+plt.ylim([0, 1]) 
+sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s.sample(n=1000, random_state=10))
+sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s3.sample(n=1000, random_state=10))
+df = pd.read_csv("C:/Users/Zeon/\Desktop/Signate2020ー/学生限定　楽曲/summary/summary/systemdata.csv",encoding='cp932')
+# データフレームの作成（特徴量＋目的変数）
+df = df.drop(["0_target"], axis=1)
+
+# 特徴量と目的変数に分割
+X = df.drop(["0_area"], axis = 1)
+y = df["0_area"]
+
+# 特徴量と目的変数のそれぞれを学習用とテスト用に分割（学習用80%, 評価用20%）
+X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+# データの確認（学習用データの特徴量）
+X_train
+# データの確認（学習用データの目的変数）
+y_train
+# 目的変数の割合（0-11が各エリア, 12がアウトボール）
+sns.countplot(y) # 青
+# 勾配ブースティングモデル（LGBMClassifier）のパラメータを指定（Optunaによるパラメータチューニングを実施済み）
+lgb = LGBMClassifier(
+    learning_rate = 0.22942420854125456, 
+    max_depth = 9, 
+    min_child_weight = 5, 
+    importance_type = "gain", 
+    random_state=1
+) 
+
+# 勾配ブースティングモデルの学習
+lgb.fit(X_train, y_train)
+
+# 評価用データを用いて予測
+y_pred = lgb.predict(X_test)
+# データの確認（評価用データの予測結果）
+y_pred
+# 評価用データを用いて, 予測結果を評価（accuracyが0.438, macroF1が0.343であることが確認できる）
+print("ー Classification Report ー")
+print(classification_report(y_test, y_pred, digits=3))
+#　混同行列の描画
+sns.heatmap(confusion_matrix(y_test, y_pred), vmin=0, vmax=500, cmap='Blues')
+# 特徴量重要度を算出し, 分かりやすいように各特徴量を日本語化
+df_imp = pd.DataFrame(lgb.feature_importances_, index=X.columns, columns=["importance"]).T
+
+df_imp["各球得点"] = df_imp[["0_status_1", "0_status_2", "0_status_3", "0_status_4", "0_status_5", "0_status_6", "0_status_7", "0_status_8", "0_status_9", "0_status_10"]].mean(axis=1)
+df_imp["各球座標"] = df_imp[["0_x_point_1", "0_x_point_2", "0_x_point_3", "0_x_point_4", "0_x_point_5", "0_x_point_6", "0_x_point_7", "0_x_point_8", "0_x_point_9", "0_x_point_10", \
+                                                     "0_y_point_1", "0_y_point_2", "0_y_point_3", "0_y_point_4", "0_y_point_5", "0_y_point_6", "0_y_point_7", "0_y_point_8", "0_y_point_9", "0_y_point_10"]].mean(axis=1)
+df_imp["打順"] = df_imp["0_player_no"]
+df_imp["被スパーク球"] = df_imp["0_spark"]
+df_imp["ショット種類"] = df_imp["0_shot_code"]
+df_imp["経過時間"] = df_imp["0_game_time_sec"]
+df_imp["1球前打順"] = df_imp["1_player_no"]
+df_imp["1球前被スパーク球"] = df_imp["1_spark"]
+df_imp["1球前ショット種類"] = df_imp["1_shot_code"]
+df_imp["1球前経過時間"] = df_imp["1_game_time_sec"]
+df_imp["1球前ねらい"] = df_imp["1_target"]
+df_imp["1球前エリア"] = df_imp["1_area"]
+df_imp["1球前イベント種類"] = df_imp["1_event_code"]
+df_imp["2球前経過時間"] = df_imp["2_game_time_sec"]
+df_imp["2球前ねらい"] = df_imp["2_target"]
+
+# グラフの日本語化
+rcParams['font.family'] = 'sans-serif'
+rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'Noto Sans CJK JP']
+
+# 44行目からのデータが特徴量重要度の対象だったため, 抽出してグラフ描画
+df_imp.T[44:].sort_values('importance', ascending=True).plot.barh(legend=False, xticks=[0, 20000, 40000, 60000], fontsize=12, figsize=(6, 6))
+# 最善手の予測確率（モデルの信頼性の高さ）
+pred_tf_time = pd.DataFrame({
+    "予測結果": y_pred == y_test,
+    "経過時間（秒）": X_test["0_game_time_sec"],
+    "shot_code": X_test["0_shot_code"]
+})
+
+# データの確認（予測結果と経過時間の関係）
+pred_tf_time
+# 通常打撃とスパーク打撃それぞれの分類精度を算出
+pred_tf_time_s = pred_tf_time[pred_tf_time["shot_code"] == 1].sort_values("経過時間（秒）")
+pred_tf_time_s["cumsum"] = (pred_tf_time_s["予測結果"].cumsum()) - 1
+pred_tf_time_s = pred_tf_time_s.reset_index()
+pred_tf_time_s["分類精度"] = pred_tf_time_s["cumsum"] / pred_tf_time_s.index
+
+pred_tf_time_s3 = pred_tf_time[pred_tf_time["shot_code"] == 3].sort_values("経過時間（秒）")
+pred_tf_time_s3["cumsum"] = (pred_tf_time_s3["予測結果"].cumsum()) - 1
+pred_tf_time_s3 = pred_tf_time_s3.reset_index()
+pred_tf_time_s3["分類精度"] = pred_tf_time_s3["cumsum"] / pred_tf_time_s3.index
+
+# 通常打撃とスパーク打撃それぞれの分類精度を可視化
+rcParams['font.family'] = 'sans-serif'
+rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'Noto Sans CJK JP']
+
+plt.figure(figsize=(5, 5))
+plt.ylim([0, 1]) 
+sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s.sample(n=1000, random_state=10))
+sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s3.sample(n=1000, random_state=10))
