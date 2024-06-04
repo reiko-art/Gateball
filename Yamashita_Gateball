@@ -9,7 +9,7 @@ from sklearn.metrics import classification_report # 評価指標の算出に必�
 from sklearn.metrics import confusion_matrix # 混同行列の描画に必要
 from lightgbm import LGBMClassifier # 勾配ブースティングモデル
 import warnings; warnings.filterwarnings('ignore') # 見にくくなるので警告を非表示
-df = pd.read_csv("C:/Users/Zeon/\Desktop/Signate2020ー/学生限定　楽曲/summary/summary/systemdata.csv",encoding='cp932')
+df = pd.read_csv("C:/Users/Zeon/Desktop/systemdata.csv",encoding='cp932')
 # データフレームの作成（特徴量＋目的変数）
 df = df.drop(["0_area"], axis=1)
 
@@ -100,7 +100,7 @@ plt.figure(figsize=(5, 5))
 plt.ylim([0, 1]) 
 sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s.sample(n=1000, random_state=10))
 sns.lineplot(x="経過時間（秒）", y="分類精度", data=pred_tf_time_s3.sample(n=1000, random_state=10))
-df = pd.read_csv("C:/Users/Zeon/\Desktop/Signate2020ー/学生限定　楽曲/summary/summary/systemdata.csv",encoding='cp932')
+df = pd.read_csv("C:/Users/Zeon/Desktop/systemdata.csv",encoding='cp932')
 # データフレームの作成（特徴量＋目的変数）
 df = df.drop(["0_target"], axis=1)
 
